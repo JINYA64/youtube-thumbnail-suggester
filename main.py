@@ -24,6 +24,7 @@ import os
 import io
 import json
 import subprocess
+import time
 from pathlib import Path
 
 from google.oauth2 import service_account
@@ -36,8 +37,8 @@ WORK_DIR = Path("work")
 FRAMES_DIR = WORK_DIR / "frames"
 CANDIDATES_DIR = WORK_DIR / "candidates"
 
-FRAME_INTERVAL_SEC = 5   # 何秒おきにフレームを切り出すか
-MAX_FRAMES = 40          # 切り出すフレームの上限（APIコスト対策）
+FRAME_INTERVAL_SEC = 15  # 何秒おきにフレームを切り出すか（無料枠のクォータに収まるよう広めに設定）
+MAX_FRAMES = 15          # 切り出すフレームの上限（Gemini無料枠は1日20回程度のため余裕を持たせる）
 TOP_N = 4                # 採点上位いくつを候補にするか
 
 # ワークフロー側で `apt-get install fonts-noto-cjk` してある前提のパス
@@ -94,7 +95,7 @@ def extract_frames(video_path: Path):
     return sorted(FRAMES_DIR.glob("frame_*.jpg"))
 
 
-def score_frame(client, frame_path: Path):
+def score_frame(client, frame_path: Path, max_retries=3):
     image = Image.open(frame_path)
     prompt = (
         "この画像はYouTube動画のワンシーンです。YouTubeのサムネイル画像として"
@@ -106,17 +107,32 @@ def score_frame(client, frame_path: Path):
         'JSON形式のみで {"score": 数値, "reason": "短い理由"} を返してください。'
         "他の文章は含めないでください。"
     )
-    response = client.models.generate_content(
-        model="gemini-3.5-flash-lite",
-        contents=[prompt, image],
-    )
-    text = response.text.strip()
-    text = text.removeprefix("```json").removeprefix("```").removesuffix("```").strip()
-    try:
-        data = json.loads(text)
-        return float(data.get("score", 0)), data.get("reason", "")
-    except (json.JSONDecodeError, ValueError):
-        return 0.0, "採点結果の解析に失敗"
+
+    last_error = None
+    for attempt in range(max_retries):
+        try:
+            response = client.models.generate_content(
+                model="gemini-3.5-flash-lite",
+                contents=[prompt, image],
+            )
+            text = response.text.strip()
+            text = text.removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+            try:
+                data = json.loads(text)
+                return float(data.get("score", 0)), data.get("reason", "")
+            except (json.JSONDecodeError, ValueError):
+                return 0.0, "採点結果の解析に失敗"
+        except Exception as e:  # noqa: BLE001 - APIエラー全般をリトライ対象にする
+            last_error = e
+            wait_sec = 20 * (attempt + 1)
+            print(
+                f"  Gemini API呼び出しに失敗（{attempt + 1}/{max_retries}回目）: {e}\n"
+                f"  {wait_sec}秒待って再試行します"
+            )
+            time.sleep(wait_sec)
+
+    print(f"  {frame_path.name}: リトライ上限に達したためスキップします（{last_error}）")
+    return 0.0, "APIエラーのため未採点"
 
 
 def compose_thumbnail(frame_path: Path, title_text, subtitle_text, pattern, out_path: Path):
