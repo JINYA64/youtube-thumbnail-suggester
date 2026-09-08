@@ -107,7 +107,7 @@ def score_frame(client, frame_path: Path):
         "他の文章は含めないでください。"
     )
     response = client.models.generate_content(
-        model="gemini-3.6-flash",
+        model="gemini-3.5-flash-lite",
         contents=[prompt, image],
     )
     text = response.text.strip()
