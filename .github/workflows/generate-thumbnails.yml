@@ -1,0 +1,44 @@
+name: サムネイル候補生成
+
+on:
+  workflow_dispatch:
+    inputs:
+      video_file_name:
+        description: "入力フォルダ内の動画ファイル名（例: onmaku2026.mp4）"
+        required: true
+      title_text:
+        description: "サムネイルに載せるメインタイトル"
+        required: true
+      subtitle_text:
+        description: "サブタイトル（任意）"
+        required: false
+        default: ""
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: リポジトリを取得
+        uses: actions/checkout@v4
+
+      - name: Pythonをセットアップ
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: ffmpegと日本語フォントをインストール
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg fonts-noto-cjk
+
+      - name: 依存パッケージをインストール
+        run: pip install -r requirements.txt
+
+      - name: サムネイル候補を生成
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          DRIVE_INPUT_FOLDER_ID: ${{ secrets.DRIVE_INPUT_FOLDER_ID }}
+          DRIVE_OUTPUT_FOLDER_ID: ${{ secrets.DRIVE_OUTPUT_FOLDER_ID }}
+          VIDEO_FILE_NAME: ${{ github.event.inputs.video_file_name }}
+          TITLE_TEXT: ${{ github.event.inputs.title_text }}
+          SUBTITLE_TEXT: ${{ github.event.inputs.subtitle_text }}
+        run: python main.py
