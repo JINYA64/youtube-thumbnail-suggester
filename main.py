@@ -29,7 +29,7 @@ from pathlib import Path
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload, MediaFileUpload
-import google.generativeai as genai
+from google import genai
 from PIL import Image, ImageDraw, ImageFont
 
 WORK_DIR = Path("work")
@@ -94,7 +94,7 @@ def extract_frames(video_path: Path):
     return sorted(FRAMES_DIR.glob("frame_*.jpg"))
 
 
-def score_frame(model, frame_path: Path):
+def score_frame(client, frame_path: Path):
     image = Image.open(frame_path)
     prompt = (
         "この画像はYouTube動画のワンシーンです。YouTubeのサムネイル画像として"
@@ -106,7 +106,10 @@ def score_frame(model, frame_path: Path):
         'JSON形式のみで {"score": 数値, "reason": "短い理由"} を返してください。'
         "他の文章は含めないでください。"
     )
-    response = model.generate_content([prompt, image])
+    response = client.models.generate_content(
+        model="gemini-2.5-flash",
+        contents=[prompt, image],
+    )
     text = response.text.strip()
     text = text.removeprefix("```json").removeprefix("```").removesuffix("```").strip()
     try:
@@ -154,8 +157,7 @@ def main():
     input_folder_id = os.environ["DRIVE_INPUT_FOLDER_ID"]
     output_folder_id = os.environ["DRIVE_OUTPUT_FOLDER_ID"]
 
-    genai.configure(api_key=os.environ["GEMINI_API_KEY"])
-    model = genai.GenerativeModel("gemini-2.0-flash")
+    client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
 
     drive = get_drive_service()
 
@@ -171,7 +173,7 @@ def main():
     print("[3/5] Gemini APIで採点中")
     scored = []
     for frame in frames:
-        score, reason = score_frame(model, frame)
+        score, reason = score_frame(client, frame)
         scored.append((score, frame, reason))
         print(f"  {frame.name}: {score}点 ({reason})")
 
