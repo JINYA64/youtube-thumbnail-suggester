@@ -22,26 +22,40 @@
 それぞれのフォルダIDは、Driveでフォルダを開いたときのURLの末尾の文字列です。
 `https://drive.google.com/drive/folders/【ここがフォルダID】`
 
-### 2. サービスアカウントを用意する
+### 2. OAuthクライアントを作成する
 
-photo-curatorで作成したサービスアカウントを流用する場合は、上記2つの
-フォルダをそのサービスアカウントのメールアドレス
-（〜@〜.iam.gserviceaccount.com）と共有するだけでOKです。
+サービスアカウントには個人のDrive保存容量がなく、動画候補のアップロードができないため、
+**ご自身のGoogleアカウントとして認証する**方式にしています。
 
-新しく作る場合は、Google Cloud Consoleで新規プロジェクト→サービスアカウント
-作成→JSONキーをダウンロード→そのフォルダと共有、という流れになります。
+1. [Google Cloud Console](https://console.cloud.google.com/apis/credentials)を開く
+2. 「認証情報を作成」→「OAuthクライアントID」
+3. アプリケーションの種類は**「ウェブアプリケーション」**を選択
+4. 「承認済みのリダイレクトURI」に `https://developers.google.com/oauthplayground` を追加して作成
+5. 表示された「クライアントID」と「クライアントシークレット」を控えておく
 
-### 3. Gemini APIキーを用意する
+### 3. リフレッシュトークンを取得する（OAuth Playgroundを使用）
+
+1. [Google OAuth Playground](https://developers.google.com/oauthplayground)を開く
+2. 右上の歯車アイコン（設定）→「Use your own OAuth credentials」にチェックを入れ、
+   手順2で控えたクライアントID・クライアントシークレットを入力
+3. 左側の一覧から「Drive API v3」→ `https://www.googleapis.com/auth/drive` にチェック
+4. 「Authorize APIs」をクリックし、サムネイル候補を保存したいGoogleアカウントでログイン・許可
+5. 「Exchange authorization code for tokens」をクリック
+6. 表示された「Refresh token」の値を控えておく（この値は再表示できないので必ず保存すること）
+
+### 4. Gemini APIキーを用意する
 
 Google AI StudioでAPIキーを発行します（他プロジェクトと分けて新規発行を推奨）。
 
-### 4. このリポジトリにGitHub Secretsを設定する
+### 5. このリポジトリにGitHub Secretsを設定する
 
 リポジトリの Settings → Secrets and variables → Actions で、以下を登録してください。
 
 | Secret名 | 内容 |
 |---|---|
-| `GOOGLE_SERVICE_ACCOUNT_JSON` | サービスアカウントのJSONキーの中身をそのまま貼り付け |
+| `GOOGLE_OAUTH_CLIENT_ID` | 手順2のクライアントID |
+| `GOOGLE_OAUTH_CLIENT_SECRET` | 手順2のクライアントシークレット |
+| `GOOGLE_OAUTH_REFRESH_TOKEN` | 手順3のリフレッシュトークン |
 | `GEMINI_API_KEY` | Gemini APIキー |
 | `DRIVE_INPUT_FOLDER_ID` | 入力フォルダのID |
 | `DRIVE_OUTPUT_FOLDER_ID` | 出力フォルダのID |
