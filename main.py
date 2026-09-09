@@ -129,7 +129,7 @@ def score_frame(client, frame_path: Path, max_retries=3):
     for attempt in range(max_retries):
         try:
             response = client.models.generate_content(
-                model="gemini-3.6-flash",
+                model="gemini-3.5-flash-lite",
                 contents=[prompt, image],
             )
             text = response.text.strip()
