@@ -9,7 +9,9 @@ YouTube動画からサムネイル候補を自動生成するスクリプト
 5. 完成した候補画像をGoogle Driveの出力フォルダにアップロード
 
 必要な環境変数（GitHub Secretsから渡す想定）：
-- GOOGLE_SERVICE_ACCOUNT_JSON : サービスアカウントの認証情報（JSON文字列）
+- GOOGLE_OAUTH_CLIENT_ID     : OAuthクライアントID
+- GOOGLE_OAUTH_CLIENT_SECRET : OAuthクライアントシークレット
+- GOOGLE_OAUTH_REFRESH_TOKEN : 自分のGoogleアカウントで発行したリフレッシュトークン
 - GEMINI_API_KEY              : Gemini APIキー
 - DRIVE_INPUT_FOLDER_ID       : 動画ファイルを置く入力フォルダのID
 - DRIVE_OUTPUT_FOLDER_ID      : サムネイル候補を保存する出力フォルダのID
@@ -27,7 +29,7 @@ import subprocess
 import time
 from pathlib import Path
 
-from google.oauth2 import service_account
+from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload, MediaFileUpload
 from google import genai
@@ -46,17 +48,27 @@ FONT_PATH = "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc"
 
 
 def get_drive_service():
-    creds_json = os.environ["GOOGLE_SERVICE_ACCOUNT_JSON"]
-    creds_info = json.loads(creds_json)
-    creds = service_account.Credentials.from_service_account_info(
-        creds_info, scopes=["https://www.googleapis.com/auth/drive"]
+    # サービスアカウントには個人Driveの保存容量がないため、
+    # 自分自身のGoogleアカウントとしてOAuth認証する
+    creds = Credentials(
+        token=None,
+        refresh_token=os.environ["GOOGLE_OAUTH_REFRESH_TOKEN"],
+        client_id=os.environ["GOOGLE_OAUTH_CLIENT_ID"],
+        client_secret=os.environ["GOOGLE_OAUTH_CLIENT_SECRET"],
+        token_uri="https://oauth2.googleapis.com/token",
+        scopes=["https://www.googleapis.com/auth/drive"],
     )
     return build("drive", "v3", credentials=creds)
 
 
 def find_file_id(drive, folder_id, file_name):
     query = f"'{folder_id}' in parents and name = '{file_name}' and trashed = false"
-    results = drive.files().list(q=query, fields="files(id, name)").execute()
+    results = drive.files().list(
+        q=query,
+        fields="files(id, name)",
+        supportsAllDrives=True,
+        includeItemsFromAllDrives=True,
+    ).execute()
     files = results.get("files", [])
     if not files:
         raise FileNotFoundError(f"入力フォルダに '{file_name}' が見つかりません")
@@ -64,7 +76,7 @@ def find_file_id(drive, folder_id, file_name):
 
 
 def download_file(drive, file_id, dest_path: Path):
-    request = drive.files().get_media(fileId=file_id)
+    request = drive.files().get_media(fileId=file_id, supportsAllDrives=True)
     dest_path.parent.mkdir(parents=True, exist_ok=True)
     with io.FileIO(dest_path, "wb") as fh:
         downloader = MediaIoBaseDownload(fh, request)
@@ -76,7 +88,12 @@ def download_file(drive, file_id, dest_path: Path):
 def upload_file(drive, local_path: Path, folder_id, name):
     file_metadata = {"name": name, "parents": [folder_id]}
     media = MediaFileUpload(str(local_path), resumable=True)
-    drive.files().create(body=file_metadata, media_body=media, fields="id").execute()
+    drive.files().create(
+        body=file_metadata,
+        media_body=media,
+        fields="id",
+        supportsAllDrives=True,
+    ).execute()
 
 
 def extract_frames(video_path: Path):
@@ -112,7 +129,7 @@ def score_frame(client, frame_path: Path, max_retries=3):
     for attempt in range(max_retries):
         try:
             response = client.models.generate_content(
-                model="gemini-3.5-flash-lite",
+                model="gemini-3.6-flash",
                 contents=[prompt, image],
             )
             text = response.text.strip()
